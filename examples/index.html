@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>YAVS Demo</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    button {
+      margin: 5px;
+      padding: 10px 20px;
+    }
+    #output {
+      margin-top: 20px;
+      white-space: pre-wrap;
+      background-color: #f0f0f0;
+      padding: 10px;
+      border-radius: 5px;
+      height: 200px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>Vector DB WASM Demo</h1>
+
+  <button id="btn-create">Create New DB</button>
+  <button id="btn-load">Load DB from File</button>
+  <button id="btn-insert" disabled>Insert Record</button>
+  <button id="btn-query" disabled>Query</button>
+  
+  <input type="file" id="file-input" accept=".yavs" style="display: none;" />
+
+  <div id="output">Create a new DB or load an existing one.</div>
+
+  <script type="module">
+    import init, { WasmYAVS } from "/pkg/yavs.js";
+
+    let db = null;
+
+    async function main() {
+      await init();
+
+      const btnCreate = document.getElementById("btn-create");
+      const btnLoad = document.getElementById("btn-load");
+      const btnInsert = document.getElementById("btn-insert");
+      const btnQuery = document.getElementById("btn-query");
+      const fileInput = document.getElementById("file-input");
+      const output = document.getElementById("output");
+
+      btnCreate.addEventListener("click", () => {
+        db = new WasmYAVS(4);  // dimension = 4
+        output.innerText = "Created in-memory DB with dimension=4.";
+        btnInsert.disabled = false;
+        btnQuery.disabled = false;
+      });
+
+      btnLoad.addEventListener("click", () => {
+        fileInput.click(); 
+      });
+
+      fileInput.addEventListener("change", (event) => {
+        const file = event.target.files[0];
+        if (!file) {
+          return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          const arrayBuffer = e.target.result;
+          const bytes = new Uint8Array(arrayBuffer);
+          try {
+            db = WasmYAVS.load_bytes(bytes);
+            output.innerText = `Loaded DB from file "${file.name}" with dimension=${db.dimension()}.`;
+            btnInsert.disabled = false;
+            btnQuery.disabled = false;
+          } catch (err) {
+            console.error(err);
+            alert("Failed to load DB. Please ensure the file is a valid YAVS file.");
+          }
+        };
+        reader.onerror = (e) => {
+          console.error(e);
+          alert("Error reading the file.");
+        };
+        reader.readAsArrayBuffer(file);
+      });
+
+      btnInsert.addEventListener("click", async () => {
+        if (!db) {
+          alert("Please create or load a DB first!");
+          return;
+        }
+        // Random embedding and metadata
+        let embedding = new Float32Array([Math.random(), Math.random(), Math.random(), Math.random()]);
+        let metadata = new TextEncoder().encode("Random record from browser");
+        try {
+          let idBytes = await db.insert(embedding, metadata);
+          output.innerText = "Inserted record with ID: " + bytesToHex(idBytes);
+        } catch (err) {
+          console.error(err);
+          alert("Failed to insert record.");
+        }
+      });
+
+      // Event listener for querying the DB
+      btnQuery.addEventListener("click", () => {
+        if (!db) {
+          alert("Please create or load a DB first!");
+          return;
+        }
+        // Example query embedding
+        let queryEmbedding = new Float32Array([0.5, 0.5, 0.5, 0.5]);
+        let k = 3;  // Top 3 results
+        try {
+          let results = db.query(queryEmbedding, k);
+          if (results.length === 0) {
+            output.innerText = "No records found.";
+            return;
+          }
+          let text = "Query Results:\n";
+          results.forEach((item, index) => {
+            // item is an array: [Uint8Array, distance]
+            let idHex = bytesToHex(item[0]);
+            let dist = item[1];
+            text += `${index + 1}. ID=${idHex}, Distance=${dist.toFixed(4)}\n`;
+          });
+          output.innerText = text;
+        } catch (err) {
+          console.error(err);
+          alert("Failed to perform query.");
+        }
+      });
+    }
+
+    // Utility function to convert Uint8Array to hex string
+    function bytesToHex(ua) {
+      return Array.from(ua).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    main();
+  </script>
+</body>
+</html>
+
